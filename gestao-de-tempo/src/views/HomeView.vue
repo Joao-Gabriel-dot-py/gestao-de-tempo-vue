@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const deferredPrompt = ref(null)
+const isInstalled = computed(() => window.matchMedia('(display-mode: standalone)').matches)
 
 function handleInstallPrompt(e) {
   e.preventDefault()
@@ -38,8 +39,8 @@ async function installApp() {
       Organize sua rotina, gerencie suas tarefas diárias e ganhe pontos completando missões. Tudo em um só lugar.
     </p>
 
-    <!-- Card de Instalação (PWA) -->
-    <div class="card bg-base-100 shadow-xl border border-base-200 p-6 md:p-8 max-w-md w-full hover:shadow-2xl transition-shadow">
+    <!-- Card de Instalação (PWA) - só aparece se NÃO estiver instalado -->
+    <div v-if="!isInstalled" class="card bg-base-100 shadow-xl border border-base-200 p-6 md:p-8 max-w-md w-full hover:shadow-2xl transition-shadow">
       <div class="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
