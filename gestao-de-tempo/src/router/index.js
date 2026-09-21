@@ -28,6 +28,12 @@ const router = createRouter({
       component: () => import('@/views/MissoesView.vue'),
       meta: { titulo: '🎯 Missões & Fases' },
     },
+    {
+      path: '/configuracoes',
+      name: 'configuracoes',
+      component: () => import('@/views/ConfiguracoesView.vue'),
+      meta: { titulo: '⚙️ Configurações' },
+    },
   ],
 })
 

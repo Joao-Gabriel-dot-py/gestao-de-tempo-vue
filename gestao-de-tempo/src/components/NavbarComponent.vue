@@ -7,6 +7,7 @@ const paginas = [
   { label: 'Gestão de Tempo', nomeRota: 'gestao-de-tempo' },
   { label: 'Tarefas', nomeRota: 'tarefas' },
   { label: 'Missões', nomeRota: 'missoes' },
+  { label: '⚙️', nomeRota: 'configuracoes' },
 ]
 
 const router = useRouter()
