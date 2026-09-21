@@ -1,0 +1,6 @@
+export { default as BaseModal } from './BaseModal.vue'
+export { default as BaseCard } from './BaseCard.vue'
+export { default as BaseButton } from './BaseButton.vue'
+export { default as BaseBadge } from './BaseBadge.vue'
+export { default as BaseEmptyState } from './BaseEmptyState.vue'
+export { default as BaseInputBusca } from './BaseInputBusca.vue'
