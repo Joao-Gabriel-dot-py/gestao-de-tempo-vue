@@ -54,33 +54,96 @@ async function excluirNoSupabase(tabela, id) {
 }
 
 // ==========================================
-// Inicialização
+// localStorage (cache local permanente)
 // ==========================================
 
-async function inicializarDados() {
-  if (inicializado) return
-  inicializado = true
-  carregando.value = true
-  erro.value = null
+function salvarTarefasNoLocalStorage() {
+  localStorage.setItem(STORAGE_TAREFAS, JSON.stringify(tarefas.value))
+}
 
-  try {
-    if (supabase) {
-      // Carregar do Supabase
-      missoes.value = (await carregarDoSupabase('missoes')).map(mapMissaoDoDb)
-      tarefas.value = (await carregarDoSupabase('tarefas')).map(mapTarefaDoDb)
-    } else {
-      // Fallback: localStorage
-      carregarDoLocalStorage()
-      configurarWatchersLocalStorage()
+function salvarMissoesNoLocalStorage() {
+  localStorage.setItem(STORAGE_MISSOES, JSON.stringify(missoes.value))
+}
+
+function salvarTudoNoLocalStorage() {
+  salvarTarefasNoLocalStorage()
+  salvarMissoesNoLocalStorage()
+}
+
+function carregarDoLocalStorage() {
+  // Missões
+  const missoesSalvas = localStorage.getItem(STORAGE_MISSOES)
+  if (missoesSalvas) {
+    try {
+      missoes.value = JSON.parse(missoesSalvas)
+    } catch {
+      carregarMissoesPadrao()
     }
-  } catch (e) {
-    console.error('[Supabase] Erro ao carregar dados, usando localStorage:', e)
-    erro.value = e.message
-    carregarDoLocalStorage()
-    configurarWatchersLocalStorage()
-  } finally {
-    carregando.value = false
+  } else {
+    carregarMissoesPadrao()
   }
+
+  // Tarefas
+  const tarefasSalvas = localStorage.getItem(STORAGE_TAREFAS)
+  if (tarefasSalvas) {
+    try {
+      tarefas.value = JSON.parse(tarefasSalvas)
+    } catch {
+      carregarTarefasPadrao()
+    }
+  } else {
+    carregarTarefasPadrao()
+  }
+}
+
+// Watcher: sempre persiste localmente a cada mudança
+function configurarWatchers() {
+  watch(missoes, salvarMissoesNoLocalStorage, { deep: true })
+  watch(tarefas, salvarTarefasNoLocalStorage, { deep: true })
+}
+
+function carregarMissoesPadrao() {
+  missoes.value = [
+    {
+      id: 'missao_1',
+      nome: 'Mestre do Foco Semanal',
+      descricao: 'Organizar blocos diários de alta concentração e eliminar a procrastinação.',
+      xpMeta: 100,
+      xpPorTarefa: 25,
+      criadoEm: new Date().toISOString(),
+    },
+    {
+      id: 'missao_2',
+      nome: 'Rotina de Estudos & Prática',
+      descricao: 'Dedicar horas de aprendizado contínuo para dominar novas habilidades.',
+      xpMeta: 100,
+      xpPorTarefa: 25,
+      criadoEm: new Date().toISOString(),
+    },
+  ]
+}
+
+function carregarTarefasPadrao() {
+  tarefas.value = [
+    {
+      id: 'quest_1',
+      nomeTarefa: 'Planejar cronograma semanal',
+      descricaoTarefas: 'Definir os blocos de foco para as metas principais da semana e priorizar atividades de alto impacto.',
+      dataTarefa: new Date().toISOString().split('T')[0],
+      missaoId: 'missao_1',
+      concluida: false,
+      criadoEm: new Date().toISOString(),
+    },
+    {
+      id: 'quest_2',
+      nomeTarefa: 'Revisar matriz de prioridades',
+      descricaoTarefas: 'Separar o que é urgente do que é importante para evitar procrastinação.',
+      dataTarefa: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+      missaoId: 'missao_1',
+      concluida: false,
+      criadoEm: new Date().toISOString(),
+    },
+  ]
 }
 
 // ==========================================
@@ -131,95 +194,39 @@ function mapMissaoParaDb(missao) {
 }
 
 // ==========================================
-// localStorage (fallback)
+// Inicialização (local-first)
 // ==========================================
 
-function carregarDoLocalStorage() {
-  // Missões
-  const missoesSalvas = localStorage.getItem(STORAGE_MISSOES)
-  if (missoesSalvas) {
+async function inicializarDados() {
+  if (inicializado) return
+  inicializado = true
+  carregando.value = true
+  erro.value = null
+
+  // 1. Sempre carrega do localStorage primeiro (instantâneo)
+  carregarDoLocalStorage()
+
+  // 2. Configura watchers para persistir localmente a cada mudança
+  configurarWatchers()
+
+  // 3. Tenta sincronizar com Supabase em background
+  if (supabase) {
     try {
-      missoes.value = JSON.parse(missoesSalvas)
-    } catch {
-      carregarMissoesPadrao()
+      const [missoesBd, tarefasBd] = await Promise.all([
+        carregarDoSupabase('missoes'),
+        carregarDoSupabase('tarefas'),
+      ])
+      missoes.value = missoesBd.map(mapMissaoDoDb)
+      tarefas.value = tarefasBd.map(mapTarefaDoDb)
+      // Atualiza cache local com dados frescos
+      salvarTudoNoLocalStorage()
+    } catch (e) {
+      console.warn('[Offline] Não foi possível sincronizar com Supabase:', e.message)
+      // Dados do localStorage já estão carregados, tudo certo
     }
-  } else {
-    carregarMissoesPadrao()
   }
 
-  // Tarefas
-  const tarefasSalvas = localStorage.getItem(STORAGE_TAREFAS)
-  if (tarefasSalvas) {
-    try {
-      tarefas.value = JSON.parse(tarefasSalvas)
-    } catch {
-      carregarTarefasPadrao()
-    }
-  } else {
-    carregarTarefasPadrao()
-  }
-}
-
-function configurarWatchersLocalStorage() {
-  watch(
-    missoes,
-    (novas) => {
-      localStorage.setItem(STORAGE_MISSOES, JSON.stringify(novas))
-    },
-    { deep: true }
-  )
-
-  watch(
-    tarefas,
-    (novas) => {
-      localStorage.setItem(STORAGE_TAREFAS, JSON.stringify(novas))
-    },
-    { deep: true }
-  )
-}
-
-function carregarMissoesPadrao() {
-  missoes.value = [
-    {
-      id: 'missao_1',
-      nome: 'Mestre do Foco Semanal',
-      descricao: 'Organizar blocos diários de alta concentração e eliminar a procrastinação.',
-      xpMeta: 100,
-      xpPorTarefa: 25,
-      criadoEm: new Date().toISOString(),
-    },
-    {
-      id: 'missao_2',
-      nome: 'Rotina de Estudos & Prática',
-      descricao: 'Dedicar horas de aprendizado contínuo para dominar novas habilidades.',
-      xpMeta: 100,
-      xpPorTarefa: 25,
-      criadoEm: new Date().toISOString(),
-    },
-  ]
-}
-
-function carregarTarefasPadrao() {
-  tarefas.value = [
-    {
-      id: 'quest_1',
-      nomeTarefa: 'Planejar cronograma semanal',
-      descricaoTarefas: 'Definir os blocos de foco para as metas principais da semana e priorizar atividades de alto impacto.',
-      dataTarefa: new Date().toISOString().split('T')[0],
-      missaoId: 'missao_1',
-      concluida: false,
-      criadoEm: new Date().toISOString(),
-    },
-    {
-      id: 'quest_2',
-      nomeTarefa: 'Revisar matriz de prioridades',
-      descricaoTarefas: 'Separar o que é urgente do que é importante para evitar procrastinação.',
-      dataTarefa: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-      missaoId: 'missao_1',
-      concluida: false,
-      criadoEm: new Date().toISOString(),
-    },
-  ]
+  carregando.value = false
 }
 
 // ==========================================
@@ -240,18 +247,21 @@ export function useGamificacao() {
       criadoEm: new Date().toISOString(),
     }
 
+    // Sempre salva localmente primeiro
+    missoes.value.unshift(nova)
+
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
         const dbData = await inserirNoSupabase('missoes', mapMissaoParaDb(nova))
-        const missaoDb = mapMissaoDoDb(dbData)
-        missoes.value.unshift(missaoDb)
-        return missaoDb
+        // Atualiza o ID local com o ID do banco
+        const index = missoes.value.findIndex((m) => m.id === nova.id)
+        if (index !== -1) {
+          missoes.value[index] = mapMissaoDoDb(dbData)
+        }
       } catch (e) {
-        console.error('[Supabase] Erro ao criar missão:', e)
-        erro.value = e.message
+        console.warn('[Offline] Missão salva localmente:', e.message)
       }
-    } else {
-      missoes.value.unshift(nova)
     }
     return nova
   }
@@ -267,40 +277,40 @@ export function useGamificacao() {
       xpPorTarefa: Number(dados.xpPorTarefa) || 25,
     }
 
+    // Sempre atualiza localmente primeiro
+    missoes.value[index] = { ...missoes.value[index], ...campos }
+
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
         await atualizarNoSupabase('missoes', dados.id, mapMissaoParaDb(campos))
       } catch (e) {
-        console.error('[Supabase] Erro ao editar missão:', e)
-        erro.value = e.message
+        console.warn('[Offline] Edição salva localmente:', e.message)
       }
     }
-
-    missoes.value[index] = { ...missoes.value[index], ...campos }
   }
 
   async function excluirMissao(id) {
+    // Sempre exclui localmente primeiro
+    missoes.value = missoes.value.filter((m) => m.id !== id)
+    tarefas.value.forEach((t) => {
+      if (t.missaoId === id) {
+        t.missaoId = ''
+      }
+    })
+
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
-        // Desvincular tarefas no DB
         await supabase
           .from('tarefas')
           .update({ missao_id: null })
           .eq('missao_id', id)
         await excluirNoSupabase('missoes', id)
       } catch (e) {
-        console.error('[Supabase] Erro ao excluir missão:', e)
-        erro.value = e.message
+        console.warn('[Offline] Exclusão salva localmente:', e.message)
       }
     }
-
-    missoes.value = missoes.value.filter((m) => m.id !== id)
-    // Desvincula as tarefas dessa missão localmente
-    tarefas.value.forEach((t) => {
-      if (t.missaoId === id) {
-        t.missaoId = ''
-      }
-    })
   }
 
   function getMissaoPorId(id) {
@@ -343,18 +353,20 @@ export function useGamificacao() {
       criadoEm: new Date().toISOString(),
     }
 
+    // Sempre salva localmente primeiro
+    tarefas.value.unshift(nova)
+
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
         const dbData = await inserirNoSupabase('tarefas', mapTarefaParaDb(nova))
-        const tarefaDb = mapTarefaDoDb(dbData)
-        tarefas.value.unshift(tarefaDb)
-        return tarefaDb
+        const index = tarefas.value.findIndex((t) => t.id === nova.id)
+        if (index !== -1) {
+          tarefas.value[index] = mapTarefaDoDb(dbData)
+        }
       } catch (e) {
-        console.error('[Supabase] Erro ao criar tarefa:', e)
-        erro.value = e.message
+        console.warn('[Offline] Tarefa salva localmente:', e.message)
       }
-    } else {
-      tarefas.value.unshift(nova)
     }
     return nova
   }
@@ -370,42 +382,44 @@ export function useGamificacao() {
       missaoId: dados.missaoId || '',
     }
 
+    // Sempre atualiza localmente primeiro
+    tarefas.value[index] = { ...tarefas.value[index], ...campos }
+
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
         await atualizarNoSupabase('tarefas', dados.id, mapTarefaParaDb(campos))
       } catch (e) {
-        console.error('[Supabase] Erro ao editar tarefa:', e)
-        erro.value = e.message
+        console.warn('[Offline] Edição salva localmente:', e.message)
       }
     }
-
-    tarefas.value[index] = { ...tarefas.value[index], ...campos }
   }
 
   async function excluirTarefa(id) {
+    // Sempre exclui localmente primeiro
+    tarefas.value = tarefas.value.filter((t) => t.id !== id)
+
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
         await excluirNoSupabase('tarefas', id)
       } catch (e) {
-        console.error('[Supabase] Erro ao excluir tarefa:', e)
-        erro.value = e.message
+        console.warn('[Offline] Exclusão salva localmente:', e.message)
       }
     }
-
-    tarefas.value = tarefas.value.filter((t) => t.id !== id)
   }
 
   async function toggleConcluida(tarefa) {
+    // Sempre atualiza localmente primeiro
     tarefa.concluida = !tarefa.concluida
 
+    // Tenta sincronizar com Supabase
     if (supabase) {
       try {
         await atualizarNoSupabase('tarefas', tarefa.id, { concluida: tarefa.concluida })
       } catch (e) {
-        console.error('[Supabase] Erro ao atualizar status:', e)
-        erro.value = e.message
-        // Reverte em caso de erro
-        tarefa.concluida = !tarefa.concluida
+        console.warn('[Offline] Status salvo localmente:', e.message)
+        // Não reverte mais — o dado local é a fonte de verdade quando offline
       }
     }
   }

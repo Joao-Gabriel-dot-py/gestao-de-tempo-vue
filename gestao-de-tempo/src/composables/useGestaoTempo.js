@@ -77,64 +77,20 @@ async function salvarPlanilhaNoSupabase(colunas, linhas) {
   if (error) throw error
 }
 
-// Debounce para não salvar a cada keypress
-let saveTimeout = null
-function salvarComDebounce() {
-  clearTimeout(saveTimeout)
-  saveTimeout = setTimeout(async () => {
-    if (!supabase) return
-    try {
-      await salvarPlanilhaNoSupabase(columns.value, rows.value)
-    } catch (e) {
-      console.error('[Supabase] Erro ao salvar planilha:', e)
-      erro.value = e.message
-    }
-  }, 1000) // Salva 1s após a última alteração
+// ==========================================
+// localStorage (cache local permanente)
+// ==========================================
+
+function salvarNoLocalStorage() {
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ columns: columns.value, rows: rows.value })
+  )
 }
-
-// ==========================================
-// Inicialização
-// ==========================================
-
-async function inicializarPlanilha() {
-  if (inicializado) return
-  inicializado = true
-  carregando.value = true
-  erro.value = null
-
-  try {
-    if (supabase) {
-      const planilha = await carregarPlanilhaDoSupabase()
-      columns.value = criarColunasPadrao() // Sempre usa colunas fixas
-      if (planilha) {
-        rows.value = JSON.parse(planilha.linhas)
-      } else {
-        rows.value = criarLinhasPadrao()
-      }
-
-      // Watcher para salvar no Supabase com debounce
-      watch([columns, rows], salvarComDebounce, { deep: true })
-    } else {
-      carregarDoLocalStorage()
-      configurarWatchersLocalStorage()
-    }
-  } catch (e) {
-    console.error('[Supabase] Erro ao carregar planilha, usando localStorage:', e)
-    erro.value = e.message
-    carregarDoLocalStorage()
-    configurarWatchersLocalStorage()
-  } finally {
-    carregando.value = false
-  }
-}
-
-// ==========================================
-// localStorage (fallback)
-// ==========================================
 
 function carregarDoLocalStorage() {
   const salvo = localStorage.getItem(STORAGE_KEY)
-  columns.value = criarColunasPadrao() // Sempre usa colunas fixas
+  columns.value = criarColunasPadrao()
 
   if (salvo) {
     try {
@@ -148,17 +104,61 @@ function carregarDoLocalStorage() {
   }
 }
 
-function configurarWatchersLocalStorage() {
-  watch(
-    [columns, rows],
-    () => {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ columns: columns.value, rows: rows.value })
-      )
-    },
-    { deep: true }
-  )
+// ==========================================
+// Debounce: salva SEMPRE no localStorage + tenta Supabase
+// ==========================================
+
+let saveTimeout = null
+function salvarComDebounce() {
+  clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(async () => {
+    // Sempre persiste localmente
+    salvarNoLocalStorage()
+
+    // Tenta sincronizar com Supabase (falha silenciosa se offline)
+    if (supabase) {
+      try {
+        await salvarPlanilhaNoSupabase(columns.value, rows.value)
+      } catch (e) {
+        console.warn('[Offline] Supabase indisponível, dados salvos localmente:', e.message)
+      }
+    }
+  }, 1000)
+}
+
+// ==========================================
+// Inicialização (local-first)
+// ==========================================
+
+async function inicializarPlanilha() {
+  if (inicializado) return
+  inicializado = true
+  carregando.value = true
+  erro.value = null
+
+  // 1. Sempre carrega do localStorage primeiro (instantâneo)
+  carregarDoLocalStorage()
+
+  // 2. Configura watcher para salvar em ambos
+  watch([columns, rows], salvarComDebounce, { deep: true })
+
+  // 3. Tenta sincronizar com Supabase em background
+  if (supabase) {
+    try {
+      const planilha = await carregarPlanilhaDoSupabase()
+      if (planilha) {
+        columns.value = criarColunasPadrao()
+        rows.value = JSON.parse(planilha.linhas)
+        // Atualiza o cache local com dados frescos do servidor
+        salvarNoLocalStorage()
+      }
+    } catch (e) {
+      console.warn('[Offline] Não foi possível sincronizar com Supabase:', e.message)
+      // Dados do localStorage já estão carregados, tudo certo
+    }
+  }
+
+  carregando.value = false
 }
 
 // ==========================================
